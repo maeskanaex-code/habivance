@@ -5,6 +5,7 @@ import app.habivance.data.local.HabitEntity
 import app.habivance.domain.model.Habit
 import app.habivance.domain.model.HabitCompletion
 import app.habivance.domain.model.HabitFrequency
+import app.habivance.domain.model.HabitPriority
 
 fun HabitEntity.toDomain(): Habit = Habit(
     id = id,
@@ -15,7 +16,9 @@ fun HabitEntity.toDomain(): Habit = Habit(
     reminderHour = reminderHour,
     reminderMinute = reminderMinute,
     createdAt = createdAt,
-    isArchived = isArchived
+    isArchived = isArchived,
+    sortOrder = sortOrder,
+    priority = try { HabitPriority.valueOf(priority) } catch (_: Exception) { HabitPriority.NORMAL }
 )
 
 fun Habit.toEntity(): HabitEntity = HabitEntity(
@@ -27,7 +30,9 @@ fun Habit.toEntity(): HabitEntity = HabitEntity(
     reminderHour = reminderHour,
     reminderMinute = reminderMinute,
     createdAt = createdAt,
-    isArchived = isArchived
+    isArchived = isArchived,
+    sortOrder = sortOrder,
+    priority = priority.name
 )
 
 fun HabitCompletionEntity.toDomain(): HabitCompletion = HabitCompletion(

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [HabitEntity::class, HabitCompletionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class HabivanceDatabase : RoomDatabase() {
@@ -23,7 +23,10 @@ abstract class HabivanceDatabase : RoomDatabase() {
                     context.applicationContext,
                     HabivanceDatabase::class.java,
                     "habivance.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

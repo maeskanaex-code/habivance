@@ -1,25 +1,32 @@
+# IDE
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
 
-# Signing secrets — NEVER commit these
-/secrets/
+# Gradle
+.gradle/
+build/
+app/build/
+captures/
+
+# Kotlin
+.kotlin/
+
+# Local config
+local.properties
+keystore.properties
+secrets/
+demo_data.json
+
+# Signing — NEVER commit
 *.jks
 *.keystore
-keystore.properties
+key_*
 
-# Extra safety net — blocks keystore files anywhere in the tree
-**/*.jks
-**/*.keystore
+# Build outputs
+*.apk
+*.aab
+app/release/
+
+# Debug junk
+error.txt

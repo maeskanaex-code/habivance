@@ -1,5 +1,6 @@
 package app.habivance.ui.settings
 
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -17,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,6 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.habivance.ui.theme.ThemeMode
 import java.text.SimpleDateFormat
@@ -58,6 +65,23 @@ fun SettingsScreen(
     val status by viewModel.backupStatus.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
+    var showPinSetup by remember { mutableStateOf(false) }
+    var showDisableLockDialog by remember { mutableStateOf(false) }
+    var disableError by remember { mutableStateOf<String?>(null) }
+
+    // Refresh permission status whenever the screen resumes.
+    // This handles the case where the user goes to Android settings, grants 
+    // a permission, and returns to this screen.
+    val settingsLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(settingsLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshPermissionStatus()
+            }
+        }
+        settingsLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { settingsLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
@@ -146,6 +170,102 @@ fun SettingsScreen(
             Spacer(Modifier.size(20.dp))
 
             Text(
+                text = "Reminders",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 6.dp)
+            )
+
+            val batteryExempt by viewModel.batteryExempt.collectAsState()
+            val exactAlarmGranted by viewModel.exactAlarmGranted.collectAsState()
+            val allGranted = batteryExempt && exactAlarmGranted
+
+            if (!batteryExempt) {
+                WarningActionRow(
+                    title = "Allow background reminders",
+                    subtitle = "Tap to grant — required for reminders when app is closed",
+                    onClick = {
+                        viewModel.openBatteryOptimizationSettings()
+                    }
+                )
+            }
+
+            if (!exactAlarmGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                WarningActionRow(
+                    title = "Allow exact alarms",
+                    subtitle = "Tap to grant — required on Android 12+ for exact timing",
+                    onClick = {
+                        viewModel.openExactAlarmSettings()
+                    }
+                )
+            }
+
+            if (allGranted) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.size(12.dp))
+                        Column {
+                            Text(
+                                text = "Reminders are set up",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.size(2.dp))
+                            Text(
+                                text = "You will receive reminders at the exact time",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.size(20.dp))
+
+            Text(
+                text = "Privacy & Security",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 6.dp)
+            )
+
+            val lockEnabledState by viewModel.lockEnabled.collectAsState()
+            ActionRow(
+                title = "App lock",
+                subtitle = if (lockEnabledState) "On - PIN required to open"
+                           else "Off - tap to enable",
+                onClick = {
+                    if (lockEnabledState) {
+                        showDisableLockDialog = true
+                    } else {
+                        showPinSetup = true
+                    }
+                }
+            )
+
+            Spacer(Modifier.size(20.dp))
+
+            Text(
                 text = "About",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -194,6 +314,37 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showDeleteAllDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showPinSetup) {
+        PinSetupDialog(
+            onDismiss = { showPinSetup = false },
+            onPinSet = { pin ->
+                viewModel.enableLock(pin)
+                showPinSetup = false
+            }
+        )
+    }
+
+    if (showDisableLockDialog) {
+        PinEntryDialog(
+            title = "Disable app lock",
+            message = disableError ?: "Enter your current PIN to disable app lock",
+            onDismiss = {
+                showDisableLockDialog = false
+                disableError = null
+            },
+            onPinEntered = { pin ->
+                viewModel.disableLock(pin) { ok ->
+                    if (ok) {
+                        showDisableLockDialog = false
+                        disableError = null
+                    } else {
+                        disableError = "Incorrect PIN. Try again."
+                    }
                 }
             }
         )
@@ -270,6 +421,59 @@ private fun ActionRow(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun WarningActionRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(Modifier.size(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
             )
         }
     }

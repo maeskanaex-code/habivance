@@ -25,11 +25,8 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Keep WorkManager workers
--keep class * extends androidx.work.Worker { *; }
--keep class * extends androidx.work.ListenableWorker { *; }
--keep class * extends androidx.work.CoroutineWorker { *; }
--keepclassmembers class app.habivance.notification.ReminderWorker { *; }
+# Keep BroadcastReceivers
+-keep class * extends android.content.BroadcastReceiver { *; }
 
 # Keep our data classes referenced by name
 -keep class app.habivance.data.backup.** { *; }

@@ -5,11 +5,11 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
-    <!-- Splash theme: shows the app icon on the splash background -->
+    <!-- Splash theme with no visible icon — native splash appears as a
+         solid dark background, then hands off to the Compose branded splash. -->
     <style name="Theme.Habivance.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
-        <item name="windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/Theme.Habivance</item>
     </style>
 </resources>

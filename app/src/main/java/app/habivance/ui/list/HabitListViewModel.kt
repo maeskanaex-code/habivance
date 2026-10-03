@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.DayOfWeek
 import java.time.LocalDate
 
 class HabitListViewModel(app: Application) : AndroidViewModel(app) {
@@ -71,6 +70,42 @@ class HabitListViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteHabit(habit: Habit) {
         viewModelScope.launch {
             repository.deleteHabit(habit)
+            refreshTrigger.value = System.currentTimeMillis()
+        }
+    }
+
+    fun reorderHabits(newOrder: List<Habit>) {
+        viewModelScope.launch {
+            repository.reorderAll(newOrder)
+            refreshTrigger.value = System.currentTimeMillis()
+        }
+    }
+
+    fun moveUp(habit: Habit) {
+        viewModelScope.launch {
+            val current = habitsWithStatus.value.map { it.habit }
+            val index = current.indexOfFirst { it.id == habit.id }
+            if (index > 0) {
+                val newOrder = current.toMutableList()
+                val moved = newOrder.removeAt(index)
+                newOrder.add(index - 1, moved)
+                repository.reorderAll(newOrder)
+                refreshTrigger.value = System.currentTimeMillis()
+            }
+        }
+    }
+
+    fun moveDown(habit: Habit) {
+        viewModelScope.launch {
+            val current = habitsWithStatus.value.map { it.habit }
+            val index = current.indexOfFirst { it.id == habit.id }
+            if (index >= 0 && index < current.size - 1) {
+                val newOrder = current.toMutableList()
+                val moved = newOrder.removeAt(index)
+                newOrder.add(index + 1, moved)
+                repository.reorderAll(newOrder)
+                refreshTrigger.value = System.currentTimeMillis()
+            }
         }
     }
 }

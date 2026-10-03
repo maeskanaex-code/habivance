@@ -114,7 +114,9 @@ class BackupRepository(private val context: Context) {
                         reminderHour = bHabit.reminderHour,
                         reminderMinute = bHabit.reminderMinute,
                         createdAt = bHabit.createdAt,
-                        isArchived = bHabit.isArchived
+                        isArchived = bHabit.isArchived,
+                        sortOrder = habitDao.getMaxSortOrder()?.plus(1L) ?: 1L,
+                        priority = "NORMAL"
                     )
                 )
             }

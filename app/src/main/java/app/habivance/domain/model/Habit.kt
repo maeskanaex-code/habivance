@@ -2,6 +2,8 @@ package app.habivance.domain.model
 
 enum class HabitFrequency { DAILY, WEEKLY }
 
+enum class HabitPriority { LOW, NORMAL, HIGH }
+
 data class Habit(
     val id: Long = 0L,
     val name: String,
@@ -11,7 +13,9 @@ data class Habit(
     val reminderHour: Int?,
     val reminderMinute: Int?,
     val createdAt: Long,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val sortOrder: Long = 0L,
+    val priority: HabitPriority = HabitPriority.NORMAL
 )
 
 data class HabitCompletion(

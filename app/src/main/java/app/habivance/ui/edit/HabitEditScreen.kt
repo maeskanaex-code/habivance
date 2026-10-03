@@ -1,7 +1,11 @@
 package app.habivance.ui.edit
 
 import android.Manifest
+import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -27,6 +31,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,10 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerState
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,9 +60,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.habivance.domain.model.HabitFrequency
+import app.habivance.domain.model.HabitPriority
+import app.habivance.ui.components.TimePickerDialog
 
 private val EMOJI_CHOICES = listOf(
     "✅", "💧", "📚", "🧠", "🏃", "🧘", "🍎", "💤", "💪", "✍️",
@@ -80,6 +84,7 @@ fun HabitEditScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showTimePicker by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -98,6 +103,16 @@ fun HabitEditScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Text("←", style = MaterialTheme.typography.titleLarge)
+                    }
+                },
+                actions = {
+                    if (state.isEditing) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete habit"
+                            )
+                        }
                     }
                 }
             )
@@ -153,6 +168,17 @@ fun HabitEditScreen(
                 }
             }
 
+            Text("Priority", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HabitPriority.entries.forEach { p ->
+                    FilterChip(
+                        selected = p == state.priority,
+                        onClick = { viewModel.onPriorityChange(p) },
+                        label = { Text(p.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                    )
+                }
+            }
+
             // --- Reminder row ---
             Text("Reminder", style = MaterialTheme.typography.titleSmall)
             Row(
@@ -176,7 +202,11 @@ fun HabitEditScreen(
                             Text("Clear")
                         }
                     }
-                    TextButton(onClick = { showTimePicker = true }) {
+                    TextButton(onClick = {
+                        if (viewModel.onReminderSetRequested()) {
+                            showTimePicker = true
+                        }
+                    }) {
                         Text(if (state.reminderHour == null) "Set time" else "Change")
                     }
                 }
@@ -194,63 +224,109 @@ fun HabitEditScreen(
         }
     }
 
+    if (state.showPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                viewModel.dismissPermissionDialog()
+                showTimePicker = true
+            },
+            title = { Text("Enable reliable reminders") },
+            text = { Text(
+                "Habivance needs two permissions so reminders fire exactly on time, " +
+                "even when the phone is idle or the app is closed.\n\n" +
+                "1. Allow background activity (battery)\n" +
+                "2. Allow exact alarms\n\n" +
+                "You can skip this, but reminders may be late or miss."
+            ) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.dismissPermissionDialog()
+                    val ctx = viewModel.getApplication<Application>()
+
+                    try {
+                        val intent = Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                        ).apply {
+                            data = Uri.parse("package:${ctx.packageName}")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        ctx.startActivity(intent)
+                    } catch (_: Exception) {
+                        try {
+                            val fallback = Intent(
+                                Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                            ).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            ctx.startActivity(fallback)
+                        } catch (_: Exception) { }
+                    }
+
+                    showTimePicker = true
+                }) { Text("Grant battery") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.dismissPermissionDialog()
+                    val ctx = viewModel.getApplication<Application>()
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try {
+                            val intent = Intent(
+                                Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
+                            ).apply {
+                                data = Uri.parse("package:${ctx.packageName}")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            ctx.startActivity(intent)
+                        } catch (_: Exception) { }
+                    }
+
+                    showTimePicker = true
+                }) { Text("Grant exact alarms") }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete habit?") },
+            text = { Text("\"${state.name}\" and all its history will be removed. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    viewModel.deleteHabit {
+                        onBack()
+                    }
+                }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (showTimePicker) {
         val initialHour = state.reminderHour ?: 9
         val initialMinute = state.reminderMinute ?: 0
-        val timePickerState = rememberTimePickerState(
-            initialHour = initialHour,
-            initialMinute = initialMinute,
-            is24Hour = true
-        )
 
         TimePickerDialog(
-            state = timePickerState,
+            initialHour = initialHour,
+            initialMinute = initialMinute,
             onDismiss = { showTimePicker = false },
-            onConfirm = {
-                viewModel.onReminderChange(timePickerState.hour, timePickerState.minute)
+            onConfirm = { h, m ->
+                viewModel.onReminderChange(h, m)
                 showTimePicker = false
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TimePickerDialog(
-    state: TimePickerState,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "Set reminder time",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                TimePicker(state = state)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    TextButton(onClick = onConfirm) { Text("OK") }
-                }
-            }
-        }
     }
 }
 

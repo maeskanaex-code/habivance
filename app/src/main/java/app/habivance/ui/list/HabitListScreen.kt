@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,29 +36,34 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.habivance.domain.model.Habit
+import app.habivance.domain.model.HabitPriority
 import app.habivance.domain.model.HabitWithStatus
+import org.burnoutcrew.reorderable.ReorderableItem
+import org.burnoutcrew.reorderable.detectReorderAfterLongPress
+import org.burnoutcrew.reorderable.rememberReorderableLazyListState
+import org.burnoutcrew.reorderable.reorderable
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -94,54 +101,38 @@ fun HabitListScreen(
             }
         }
     ) { innerPadding ->
-        if (habits.isEmpty()) {
-            EmptyState(modifier = Modifier.padding(innerPadding))
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item { DateHeader() }
-                item { Spacer(Modifier.height(8.dp)) }
-                item {
-                    ProgressHeader(
-                        completed = todayCompleted,
-                        total = todayTotal
-                    )
-                }
-                item { Spacer(Modifier.height(8.dp)) }
-                item {
-                    Text(
-                        text = "This week",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                item {
-                    WeeklyHeatmap(
-                        dailyCompletions = weekCompletions,
-                        habitsTotal = todayTotal
-                    )
-                }
-                item { Spacer(Modifier.height(20.dp)) }
-                item {
-                    Text(
-                        text = "TODAY",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                items(habits, key = { it.habit.id }) { item ->
-                    SwipeableHabitRow(
-                        item = item,
-                        onToggle = { viewModel.toggleToday(item.habit) },
-                        onClick = { onEditHabit(item.habit.id) },
-                        onSwipeToDelete = { habitPendingDelete = item.habit }
-                    )
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(Modifier.height(16.dp))
+            DateHeader()
+            Spacer(Modifier.height(16.dp))
+            ProgressHeader(completed = todayCompleted, total = todayTotal)
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = "This week",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            WeeklyHeatmap(
+                dailyCompletions = weekCompletions,
+                habitsTotal = todayTotal
+            )
+            Spacer(Modifier.height(24.dp))
+
+            if (habits.isEmpty()) {
+                EmptyHabitsMessage()
+            } else {
+                HabitReorderableList(
+                    habits = habits,
+                    viewModel = viewModel,
+                    onEditHabit = onEditHabit,
+                    onDeleteRequested = { habitPendingDelete = it }
+                )
             }
         }
     }
@@ -161,6 +152,94 @@ fun HabitListScreen(
                 TextButton(onClick = { habitPendingDelete = null }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun HabitReorderableList(
+    habits: List<HabitWithStatus>,
+    viewModel: HabitListViewModel,
+    onEditHabit: (Long) -> Unit,
+    onDeleteRequested: (Habit) -> Unit
+) {
+    val lazyListState = rememberLazyListState()
+    val localItems = remember { mutableStateListOf<HabitWithStatus>() }
+
+    // Sync from DB, but only when IDs actually differ.
+    // If only non-order fields changed (e.g., isCompletedToday), update in-place 
+    // without clearing the list — avoids full recomposition.
+    LaunchedEffect(habits) {
+        val dbIds = habits.map { it.habit.id }
+        val localIds = localItems.map { it.habit.id }
+        if (dbIds != localIds) {
+            // Order changed — full replace
+            localItems.clear()
+            localItems.addAll(habits)
+        } else {
+            // Same order — update in place if individual items changed
+            habits.forEachIndexed { index, newItem ->
+                if (index < localItems.size && localItems[index] != newItem) {
+                    localItems[index] = newItem
+                }
+            }
+        }
+    }
+
+    val reorderState = rememberReorderableLazyListState(
+        listState = lazyListState,
+        onMove = { from, to ->
+            val fromIdx = from.index
+            val toIdx = to.index
+            if (fromIdx in localItems.indices && toIdx in localItems.indices) {
+                localItems.add(toIdx, localItems.removeAt(fromIdx))
+            }
+        }
+    )
+
+    // Persist on drag release
+    LaunchedEffect(reorderState) {
+        snapshotFlow { reorderState.draggingItemKey }
+            .collect { draggingKey ->
+                if (draggingKey == null && localItems.isNotEmpty()) {
+                    val ids = localItems.map { it.habit.id }
+                    val dbIds = habits.map { it.habit.id }
+                    if (ids != dbIds) {
+                        viewModel.reorderHabits(localItems.map { it.habit })
+                    }
+                }
+            }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .reorderable(reorderState),
+        state = lazyListState,
+        contentPadding = PaddingValues(bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(
+            items = localItems,
+            key = { it.habit.id }
+        ) { item ->
+            ReorderableItem(
+                state = reorderState,
+                key = item.habit.id
+            ) { isDragging ->
+                Box(
+                    modifier = Modifier
+                        .detectReorderAfterLongPress(reorderState)
+                ) {
+                    HabitRow(
+                        item = item,
+                        isDragging = isDragging,
+                        onToggle = { viewModel.toggleToday(item.habit) },
+                        onClick = { onEditHabit(item.habit.id) },
+                        onDelete = { onDeleteRequested(item.habit) }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -220,64 +299,14 @@ private fun ProgressHeader(completed: Int, total: Int) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeableHabitRow(
-    item: HabitWithStatus,
-    onToggle: () -> Unit,
-    onClick: () -> Unit,
-    onSwipeToDelete: () -> Unit
-) {
-    var deleteRequested by remember { mutableStateOf(false) }
-
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                deleteRequested = true
-                false
-            } else false
-        }
-    )
-
-    LaunchedEffect(deleteRequested) {
-        if (deleteRequested) {
-            onSwipeToDelete()
-            dismissState.reset()
-            deleteRequested = false
-        }
-    }
-
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
-    ) {
-        HabitRow(item = item, onToggle = onToggle, onClick = onClick)
-    }
-}
-
 @Composable
 private fun HabitRow(
     item: HabitWithStatus,
+    isDragging: Boolean,
     onToggle: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val habit = item.habit
     val habitColor = remember(habit.colorHex) {
@@ -285,16 +314,32 @@ private fun HabitRow(
         catch (_: Exception) { Color(0xFF3B82F6) }
     }
 
+    val borderColor = when (habit.priority) {
+        HabitPriority.HIGH -> MaterialTheme.colorScheme.primary
+        HabitPriority.LOW -> MaterialTheme.colorScheme.outline
+        HabitPriority.NORMAL -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val borderWidth = when (habit.priority) {
+        HabitPriority.HIGH -> 2.dp
+        HabitPriority.LOW -> 1.dp
+        HabitPriority.NORMAL -> 1.dp
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .pointerInput(habit.id) {
+                detectTapGestures(onTap = { onClick() })
+            }
+            .then(modifier),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        border = BorderStroke(borderWidth, borderColor),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isDragging) 8.dp else 0.dp
+        )
     ) {
         Row(
             modifier = Modifier
@@ -325,6 +370,16 @@ private fun HabitRow(
 
             if (item.currentStreak > 0) {
                 StreakBadge(streak = item.currentStreak)
+                Spacer(Modifier.width(8.dp))
+            }
+
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -376,9 +431,11 @@ private fun StreakBadge(streak: Int) {
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
+private fun EmptyHabitsMessage() {
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 40.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

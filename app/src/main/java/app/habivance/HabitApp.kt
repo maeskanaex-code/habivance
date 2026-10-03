@@ -1,7 +1,7 @@
 package app.habivance
 
 import android.app.Application
-import app.habivance.notification.ReminderWorker
+import app.habivance.notification.ReminderReceiver
 
 class HabitApp : Application() {
 
@@ -11,6 +11,6 @@ class HabitApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        ReminderWorker.ensureChannel(this)
+        ReminderReceiver.ensureChannel(this)
     }
 }

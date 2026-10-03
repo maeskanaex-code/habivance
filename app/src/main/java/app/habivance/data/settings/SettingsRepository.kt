@@ -3,6 +3,7 @@ package app.habivance.data.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -15,6 +16,8 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 class SettingsRepository(private val context: Context) {
 
     private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val soundKey = stringPreferencesKey("notification_sound_uri")
+    private val hasSeenWelcomeKey = booleanPreferencesKey("has_seen_welcome")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         val raw = prefs[themeModeKey]
@@ -25,9 +28,29 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    val notificationSoundUri: Flow<String?> = context.settingsDataStore.data.map { prefs ->
+        prefs[soundKey]
+    }
+
+    val hasSeenWelcome: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[hasSeenWelcomeKey] ?: false
+    }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { prefs ->
             prefs[themeModeKey] = mode.name
+        }
+    }
+
+    suspend fun setNotificationSoundUri(uri: String?) {
+        context.settingsDataStore.edit { prefs ->
+            if (uri == null) prefs.remove(soundKey) else prefs[soundKey] = uri
+        }
+    }
+
+    suspend fun setHasSeenWelcome(value: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[hasSeenWelcomeKey] = value
         }
     }
 }

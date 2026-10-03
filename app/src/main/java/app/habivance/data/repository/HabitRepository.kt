@@ -6,6 +6,7 @@ import app.habivance.data.mapper.toDomain
 import app.habivance.data.mapper.toEntity
 import app.habivance.domain.model.Habit
 import app.habivance.domain.model.HabitCompletion
+import app.habivance.domain.model.HabitPriority
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
@@ -16,6 +17,7 @@ interface HabitRepository {
     suspend fun upsertHabit(habit: Habit): Long
     suspend fun deleteHabit(habit: Habit)
     suspend fun deleteAllData()
+    suspend fun reorderAll(orderedHabits: List<Habit>)
 
     fun observeCompletions(habitId: Long): Flow<List<HabitCompletion>>
     suspend fun getAllCompletions(habitId: Long): List<HabitCompletion>
@@ -34,8 +36,13 @@ class HabitRepositoryImpl(private val dao: HabitDao) : HabitRepository {
 
     override suspend fun upsertHabit(habit: Habit): Long {
         val entity = habit.toEntity()
-        return if (entity.id == 0L) dao.insertHabit(entity)
-        else { dao.updateHabit(entity); entity.id }
+        return if (entity.id == 0L) {
+            val newOrder = (dao.getMaxSortOrder() ?: 0L) + 1L
+            dao.insertHabit(entity.copy(sortOrder = newOrder))
+        } else {
+            dao.updateHabit(entity)
+            entity.id
+        }
     }
 
     override suspend fun deleteHabit(habit: Habit) = dao.deleteHabit(habit.toEntity())
@@ -43,6 +50,10 @@ class HabitRepositoryImpl(private val dao: HabitDao) : HabitRepository {
     override suspend fun deleteAllData() {
         dao.deleteAllCompletions()
         dao.deleteAllHabits()
+    }
+
+    override suspend fun reorderAll(orderedHabits: List<Habit>) {
+        dao.reorderAllInTransaction(orderedHabits.mapIndexed { i, h -> h.id to (i + 1).toLong() })
     }
 
     override fun observeCompletions(habitId: Long): Flow<List<HabitCompletion>> =
@@ -61,7 +72,7 @@ class HabitRepositoryImpl(private val dao: HabitDao) : HabitRepository {
                 HabitCompletionEntity(
                     habitId = habitId,
                     dateEpochDay = epochDay,
-                    completedAt = completedAt
+                    completedAt = System.currentTimeMillis()
                 )
             )
         } else {
